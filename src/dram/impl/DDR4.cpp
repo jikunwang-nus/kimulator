@@ -1,9 +1,6 @@
-
-#include "../spec.h"
 #include "../dram.h"
+#include "../../base/utils.h"
 #include <map>
-
-using namespace std;
 namespace Kimulator
 {
 
@@ -58,7 +55,7 @@ namespace Kimulator
 
     // organization
     const int m_internel_prefetch_size = 8;
-    inline static IndexedVector<string> m_levels = {
+    inline static KVector<string> m_levels = {
         "channel",
         "rank",
         "bankgroup",
@@ -67,7 +64,7 @@ namespace Kimulator
         "column",
     };
     // commands
-    inline static vector<string> m_commands = {
+    inline static std::vector<std::string> m_commands = {
         "ACT",         // activate a row
         "PRE", "PREA", // precharge & close (PREA = precharge all)
         "RD", "RDA",   // read & auto-increase read
@@ -151,30 +148,205 @@ namespace Kimulator
 
   public:
     vector<Node *> m_channels;
-    void init(){
+    void init()
+    {
       set_organization();
       set_time_consumption();
+      node_init();
     }
-   
+
   private:
-   void set_organization(){};
-   void set_time_consumption(){};
-  // create node and init
+    // set organization of dram basen on configuration
+    void set_organization()
+    {
+      // set all vars in spec
+      // @todo retrieve param from config
+      string preset = "DDR4_8Gb_x8";
+      int channels = 1;
+      int rank = 2;
+      m_channel_width = 64;
+      m_spec.count.resize(m_levels.size());
+
+      m_spec = spec_preset.at(preset);
+    };
+    // set and calculate time consumptation based on configuration
+    void set_time_consumption()
+    {
+      // check size
+      m_timings_ct.keys().resize(m_timings.size());
+      // set timing value from provided map
+      string timing_name = "DDR4_2400R";
+      auto at = timing_presets.find(timing_name);
+      if (at != timing_presets.end())
+      {
+        vector<int> val = at->second;
+        m_timings_ct.setValues(val);
+      }
+      // set tCK
+      int tCK_ps = 1E6 / (m_timings_ct.value("rate") / 2);
+      m_timings_ct.setVal("tCK_ps", tCK_ps);
+
+      // lambda calculate ids
+      int dq_id = [](int dequeue) -> int
+      {
+        switch (dequeue)
+        {
+        case 4:
+          return 0;
+        case 8:
+          return 1;
+        case 16:
+          return 2;
+        default:
+          return -1;
+        }
+      }(m_spec.dq);
+      int rate_id = [](int rate) -> int
+      {
+        switch (rate)
+        {
+        case 1600:
+          return 0;
+        case 1866:
+          return 1;
+        case 2133:
+          return 2;
+        case 2400:
+          return 3;
+        case 2666:
+          return 4;
+        case 2933:
+          return 5;
+        case 3200:
+          return 6;
+        default:
+          return -1;
+        }
+      }(m_timings_ct.value("rate"));
+      constexpr int nRRDS_TABLE[3][7] = {
+          // 1600  1866  2133  2400  2666  2933  3200
+          {4, 4, 4, 4, 4, 4, 4}, // x4
+          {4, 4, 4, 4, 4, 4, 4}, // x8
+          {5, 5, 6, 7, 8, 8, 9}, // x16
+      };
+      constexpr int nRRDL_TABLE[3][7] = {
+          // 1600  1866  2133  2400  2666  2933  3200
+          {5, 5, 6, 6, 7, 8, 8},   // x4
+          {5, 5, 6, 6, 7, 8, 8},   // x8
+          {6, 6, 7, 8, 9, 10, 11}, // x16
+      };
+      constexpr int nFAW_TABLE[3][7] = {
+          // 1600  1866  2133  2400  2666  2933  3200
+          {16, 16, 16, 16, 16, 16, 16}, // x4
+          {20, 22, 23, 26, 28, 31, 34}, // x8
+          {28, 28, 32, 36, 40, 44, 48}, // x16
+      };
+
+      if (dq_id != -1 && rate_id != -1)
+      {
+        m_timings_ct.setVal("nRRDS", nRRDS_TABLE[dq_id][rate_id]);
+        m_timings_ct.setVal("nRRDL", nRRDL_TABLE[dq_id][rate_id]);
+        m_timings_ct.setVal("nFAW", nFAW_TABLE[dq_id][rate_id]);
+      }
+      // Refresh timings
+      // tRFC table (unit is nanosecond!)
+      constexpr int tRFC_TABLE[3][4] = {
+          //  2Gb   4Gb   8Gb  16Gb
+          {160, 260, 360, 550}, // Normal refresh (tRFC1)
+          {110, 160, 260, 350}, // FGR 2x (tRFC2)
+          {90, 110, 160, 260},  // FGR 4x (tRFC4)
+      };
+
+      // tREFI(base) table (unit is nanosecond!)
+      constexpr int tREFI_BASE = 7800;
+      int density_id = [](int density_Mb) -> int
+      {
+        switch (density_Mb)
+        {
+        case 2048:
+          return 0;
+        case 4096:
+          return 1;
+        case 8192:
+          return 2;
+        case 16384:
+          return 3;
+        default:
+          return -1;
+        }
+      }(m_spec.density);
+      m_timings_ct.setVal("nRFC", JEDEC_rounding(tRFC_TABLE[0][density_id], tCK_ps));
+      m_timings_ct.setVal("nREFI", JEDEC_rounding(tREFI_BASE, tCK_ps));
+
+      // set read latency
+      m_read_latency = m_timings_ct.value("nCL") + m_timings_ct.value("nBL");
+// Populate the timing constraints
+#define V(timing) (m_timings_ct.value(timing))
+      populate_timingcons(this, {
+                                    /*** Channel ***/
+                                    // CAS <-> CAS
+                                    /// Data bus occupancy
+                                    {.level = "channel", .preceding = {"RD", "RDA"}, .following = {"RD", "RDA"}, .latency = V("nBL")},
+                                    {.level = "channel", .preceding = {"WR", "WRA"}, .following = {"WR", "WRA"}, .latency = V("nBL")},
+
+                                    /*** Rank (or different BankGroup) ***/
+                                    // CAS <-> CAS
+                                    /// nCCDS is the minimal latency for column commands
+                                    {.level = "rank", .preceding = {"RD", "RDA"}, .following = {"RD", "RDA"}, .latency = V("nCCDS")},
+                                    {.level = "rank", .preceding = {"WR", "WRA"}, .following = {"WR", "WRA"}, .latency = V("nCCDS")},
+                                    /// RD <-> WR, Minimum Read to Write, Assuming tWPRE = 1 tCK
+                                    {.level = "rank", .preceding = {"RD", "RDA"}, .following = {"WR", "WRA"}, .latency = V("nCL") + V("nBL") + 2 - V("nCWL")},
+                                    /// WR <-> RD, Minimum Read after Write
+                                    {.level = "rank", .preceding = {"WR", "WRA"}, .following = {"RD", "RDA"}, .latency = V("nCWL") + V("nBL") + V("nWTRS")},
+                                    /// CAS <-> CAS between sibling ranks, nCS (rank switching) is needed for new DQS
+                                    {.level = "rank", .preceding = {"RD", "RDA"}, .following = {"RD", "RDA", "WR", "WRA"}, .latency = V("nBL") + V("nCS"), .is_sibling = true},
+                                    {.level = "rank", .preceding = {"WR", "WRA"}, .following = {"RD", "RDA"}, .latency = V("nCL") + V("nBL") + V("nCS") - V("nCWL"), .is_sibling = true},
+                                    /// CAS <-> PREab
+                                    {.level = "rank", .preceding = {"RD"}, .following = {"PREA"}, .latency = V("nRTP")},
+                                    {.level = "rank", .preceding = {"WR"}, .following = {"PREA"}, .latency = V("nCWL") + V("nBL") + V("nWR")},
+                                    /// RAS <-> RAS
+                                    {.level = "rank", .preceding = {"ACT"}, .following = {"ACT"}, .latency = V("nRRDS")},
+                                    {.level = "rank", .preceding = {"ACT"}, .following = {"ACT"}, .latency = V("nFAW"), .window = 4},
+                                    {.level = "rank", .preceding = {"ACT"}, .following = {"PREA"}, .latency = V("nRAS")},
+                                    {.level = "rank", .preceding = {"PREA"}, .following = {"ACT"}, .latency = V("nRP")},
+                                    /// RAS <-> REF
+                                    {.level = "rank", .preceding = {"ACT"}, .following = {"REFab"}, .latency = V("nRC")},
+                                    {.level = "rank", .preceding = {"PRE", "PREA"}, .following = {"REFab"}, .latency = V("nRP")},
+                                    {.level = "rank", .preceding = {"RDA"}, .following = {"REFab"}, .latency = V("nRP") + V("nRTP")},
+                                    {.level = "rank", .preceding = {"WRA"}, .following = {"REFab"}, .latency = V("nCWL") + V("nBL") + V("nWR") + V("nRP")},
+                                    {.level = "rank", .preceding = {"REFab"}, .following = {"ACT"}, .latency = V("nRFC")},
+
+                                    /*** Same Bank Group ***/
+                                    /// CAS <-> CAS
+                                    {.level = "bankgroup", .preceding = {"RD", "RDA"}, .following = {"RD", "RDA"}, .latency = V("nCCDL")},
+                                    {.level = "bankgroup", .preceding = {"WR", "WRA"}, .following = {"WR", "WRA"}, .latency = V("nCCDL")},
+                                    {.level = "bankgroup", .preceding = {"WR", "WRA"}, .following = {"RD", "RDA"}, .latency = V("nCWL") + V("nBL") + V("nWTRL")},
+                                    /// RAS <-> RAS
+                                    {.level = "bankgroup", .preceding = {"ACT"}, .following = {"ACT"}, .latency = V("nRRDL")},
+
+                                    /*** Bank ***/
+                                    {.level = "bank", .preceding = {"ACT"}, .following = {"ACT"}, .latency = V("nRC")},
+                                    {.level = "bank", .preceding = {"ACT"}, .following = {"RD", "RDA", "WR", "WRA"}, .latency = V("nRCD")},
+                                    {.level = "bank", .preceding = {"ACT"}, .following = {"PRE"}, .latency = V("nRAS")},
+                                    {.level = "bank", .preceding = {"PRE"}, .following = {"ACT"}, .latency = V("nRP")},
+                                    {.level = "bank", .preceding = {"RD"}, .following = {"PRE"}, .latency = V("nRTP")},
+                                    {.level = "bank", .preceding = {"WR"}, .following = {"PRE"}, .latency = V("nCWL") + V("nBL") + V("nWR")},
+                                    {.level = "bank", .preceding = {"RDA"}, .following = {"ACT"}, .latency = V("nRTP") + V("nRP")},
+                                    {.level = "bank", .preceding = {"WRA"}, .following = {"ACT"}, .latency = V("nCWL") + V("nBL") + V("nWR") + V("nRP")},
+                                });
+#undef V
+    }
+    
+
+    // create node and init
     void node_init()
     {
-      string target_spec = "";
-      auto it = spec_preset.find(target_spec);
-      if (it != spec_preset.end())
+      int n_channels = m_spec.count[m_levels.indexOf("channel")];
+      for (int i = 0; i < n_channels; i++)
       {
-        specification spec = it->second;
-        int n_channels = spec.count[m_levels.indexOf("channel")];
-        for (int i = 0; i < n_channels; i++)
-        {
-          Node *ch = new Node(this, nullptr, 0, i);
-          m_channels.push_back(ch);
-        }
+        Node *ch = new Node(this, nullptr, 0, i);
+        m_channels.push_back(ch);
       }
     }
   };
-
 }
