@@ -1,6 +1,7 @@
-#include "../dram.h"
-#include "../../base/utils.h"
-#include <map>
+#include "base/utils.h"
+#include "dram/dram.h"
+#include "dram/lambdas.h"
+#include "dram/node.h"
 namespace Kimulator
 {
 
@@ -9,7 +10,7 @@ namespace Kimulator
 
   public:
     // hierachy for each spec
-    inline static const std::map<std::string, specification> spec_preset = {
+    inline static const std::map<std::string, Organization> spec_preset = {
         //   name         density   DQ   Ch Ra Bg Ba   Ro     Co
         {"DDR4_2Gb_x4", {2 << 10, 4, {1, 1, 4, 4, 1 << 15, 1 << 10}}},
         {"DDR4_2Gb_x8", {2 << 10, 8, {1, 1, 4, 4, 1 << 14, 1 << 10}}},
@@ -64,7 +65,7 @@ namespace Kimulator
         "column",
     };
     // commands
-    inline static std::vector<std::string> m_commands = {
+    inline static KVector<std::string> m_commands = {
         "ACT",         // activate a row
         "PRE", "PREA", // precharge & close (PREA = precharge all)
         "RD", "RDA",   // read & auto-increase read
@@ -117,41 +118,52 @@ namespace Kimulator
         "nCS",
         "tCK_ps"};
     // node states
-    inline static vector<string> m_states = {
+    inline static KVector<string> m_states = {
         "Opened",
         "Closed",
         "PowerUp",
         "N/A"};
     // node init states
     inline static map<string, string> m_init_states = {
-        {"channel", m_states[0]},
-        {"rank", m_states[2]},
-        {"bank_group", m_states[3]},
-        {"bank", m_states[1]},
-        {"row", m_states[1]},
-        {"column", m_states[3]}};
+        {"channel", "Opened"},
+        {"rank", "PowerUp"},
+        {"bank_group", "N/A"},
+        {"bank", "Closed"},
+        {"row", "Closed"},
+        {"column", "N/A"}};
 
-    struct Node
+    // inline static map<string, string> m_init_states = {
+    //     {"channel", m_states[0]},
+    //     {"rank", m_states[2]},
+    //     {"bank_group", m_states[3]},
+    //     {"bank", m_states[1]},
+    //     {"row", m_states[1]},
+    //     {"column", m_states[3]}};
+
+    struct Node : public DRAMNodeBase<DDR4>
     {
       DDR4 *dram;
       Node *parent;
       int level;
       int id;
-      Node(DDR4 *dram, Node *node, int level, int id)
-      {
-        dram = dram;
-        parent = node;
-        level = level;
-        id = id;
-      };
+      Node(DDR4 *dram, Node *parent, int level, int id) : DRAMNodeBase<DDR4>(dram, parent, level, id){};
     };
 
   public:
     vector<Node *> m_channels;
+
+    FuncVV<Func_void<Node>> m_actions;
+    FuncVV<Func_int<Node>> m_prerequisites;
+    FuncVV<Func_bool<Node>> m_rowhits;
+    FuncVV<Func_bool<Node>> m_rowopens;
     void init()
     {
       set_organization();
       set_time_consumption();
+      set_actions();
+      set_prerequisites();
+      set_rowhits();
+      set_rowopens();
       node_init();
     }
 
@@ -165,9 +177,9 @@ namespace Kimulator
       int channels = 1;
       int rank = 2;
       m_channel_width = 64;
-      m_spec.count.resize(m_levels.size());
+      m_organization.count.resize(m_levels.size());
 
-      m_spec = spec_preset.at(preset);
+      m_organization = spec_preset.at(preset);
     };
     // set and calculate time consumptation based on configuration
     void set_time_consumption()
@@ -200,7 +212,7 @@ namespace Kimulator
         default:
           return -1;
         }
-      }(m_spec.dq);
+      }(m_organization.dq);
       int rate_id = [](int rate) -> int
       {
         switch (rate)
@@ -274,7 +286,7 @@ namespace Kimulator
         default:
           return -1;
         }
-      }(m_spec.density);
+      }(m_organization.density);
       m_timings_ct.setVal("nRFC", JEDEC_rounding(tRFC_TABLE[0][density_id], tCK_ps));
       m_timings_ct.setVal("nREFI", JEDEC_rounding(tREFI_BASE, tCK_ps));
 
@@ -336,12 +348,45 @@ namespace Kimulator
                                 });
 #undef V
     }
-    
+    // set action for rank & bank
+    void set_actions()
+    {
+      // action for rank
+      m_actions[m_levels["rank"]][m_commands["PREA"]] = Kimulator::Lambdas::Action::Rank::PREab<DDR4>;
+      // action for bank
+      m_actions[m_levels["bank"]][m_commands["ACT"]] = Kimulator::Lambdas::Action::Bank::act<DDR4>;
+      m_actions[m_levels["bank"]][m_commands["PRE"]] = Kimulator::Lambdas::Action::Bank::pre<DDR4>;
+      m_actions[m_levels["bank"]][m_commands["RDA"]] = Kimulator::Lambdas::Action::Bank::pre<DDR4>;
+      m_actions[m_levels["bank"]][m_commands["WRA"]] = Kimulator::Lambdas::Action::Bank::pre<DDR4>;
+    }
+    // set prerequisite for action
+    void set_prerequisites()
+    {
+      // prerequisite for rank action
+      m_prerequisites[m_levels["rank"]][m_commands["REFab"]] = Lambdas::Preq::Bank::RequireBankClosed<DDR4>;
 
+      // prerequisite for bank action
+      m_prerequisites[m_levels["bank"]][m_commands["RD"]] = Lambdas::Preq::Bank::RequireRowOpen<DDR4>;
+      m_prerequisites[m_levels["bank"]][m_commands["WR"]] = Lambdas::Preq::Bank::RequireRowOpen<DDR4>;
+    }
+    // set rowopen-related
+    void set_rowopens()
+    {
+      // set function to check whether read & write avaliable -> true / false
+      m_rowopens[m_levels["bank"]][m_commands["RD"]] = Lambdas::RowOpen::Bank::RDWR<DDR4>;
+      m_rowopens[m_levels["bank"]][m_commands["WR"]] = Lambdas::RowOpen::Bank::RDWR<DDR4>;
+    }
+    // set rowhit-related
+    void set_rowhits()
+    {
+      // set function to check whether read & write avaliable -> true / false
+      m_rowhits[m_levels["bank"]][m_commands["RD"]] = Lambdas::RowHit::Bank::RDWR<DDR4>;
+      m_rowhits[m_levels["bank"]][m_commands["WR"]] = Lambdas::RowHit::Bank::RDWR<DDR4>;
+    }
     // create node and init
     void node_init()
     {
-      int n_channels = m_spec.count[m_levels.indexOf("channel")];
+      int n_channels = m_organization.count[m_levels.indexOf("channel")];
       for (int i = 0; i < n_channels; i++)
       {
         Node *ch = new Node(this, nullptr, 0, i);

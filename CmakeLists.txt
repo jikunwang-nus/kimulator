@@ -5,13 +5,15 @@ project(
     VERSION 0.0.1
     LANGUAGES CXX
 )
+
+
 ### Prompt the build type ####
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
 endif()
 message("Configuring ${CMAKE_PROJECT_NAME} ${CMAKE_PROJECT_Version}...")
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DRAMULATOR_DEBUG")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DKIMULATOR_DEBUG")
 # set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 ###############################
@@ -22,7 +24,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 #### External libraries ####
 include(FetchContent)
 set(FETCHCONTENT_UPDATES_DISCONNECTED ON CACHE BOOL "Skip updating the external dependencies after populating them for the first time")
@@ -35,36 +37,24 @@ FetchContent_Declare(
   yaml-cpp                             
   GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
   GIT_TAG        yaml-cpp-0.7.0                        
-  SOURCE_DIR     ${CMAKE_SOURCE_DIR}/ext/yaml-cpp
+  SOURCE_DIR     ${CMAKE_SOURCE_DIR}/include/yaml-cpp
 )
 FetchContent_MakeAvailable(yaml-cpp)
-include_directories(${yaml-cpp_SOURCE_DIR}/include)
-
-include_directories(${CMAKE_SOURCE_DIR}/src)
-add_library(kimulator SHARED)
-set_target_properties(kimulator PROPERTIES
-  LIBRARY_OUTPUT_DIRECTORY  ${PROJECT_SOURCE_DIR}
+message("Configuring spdlog...")
+FetchContent_Declare(
+  spdlog                             
+  GIT_REPOSITORY https://github.com/gabime/spdlog.git
+  GIT_TAG        v1.11.0     
+  SOURCE_DIR     ${CMAKE_SOURCE_DIR}/include/spdlog
 )
-target_link_libraries(
-    kimulator 
-  PUBLIC yaml-cpp
-)
-add_executable(kimulator-exe)
-target_link_libraries(
-    kimulator-exe
-  # PRIVATE -Wl,--whole-archive ramulator -Wl,--no-whole-archive 
-  PRIVATE kimulator
-)
-
-set_target_properties(
-    kimulator
-  PROPERTIES 
-  OUTPUT_NAME kimulator
-)
+FetchContent_MakeAvailable(spdlog)
+include_directories(${spdlog_SOURCE_DIR}/include)
+message("Done configuring spdlog.")
+# add a shared lib named kt_lib_shared, link all sub lib to it
+add_library(kt_lib_shared SHARED)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 add_subdirectory(src)
 
-message(STATUS "C Compiler: ${CMAKE_C_COMPILER}")
-message(STATUS "C++ Compiler: ${CMAKE_CXX_COMPILER}")
 
 

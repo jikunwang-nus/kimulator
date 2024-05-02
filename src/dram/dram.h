@@ -1,7 +1,7 @@
 #ifndef KIMULATOR_DRAM_DRAM_H
 #define KIMULATOR_DRAM_DRAM_H
 
-#include "spec.h"
+#include "dram/spec.h"
 namespace Kimulator
 {
     // define abstract class IDRAM as root class, all impl should implement public function
@@ -18,7 +18,7 @@ namespace Kimulator
         **+++++++++++++++++++++++++++++++++++++*/
     public:
         int m_internel_prefetch_size = -1;
-        specification m_spec;
+        Organization m_organization;
         int m_channel_width = -1;
 
         /**+++++++++++++++++++++++++++++++++++++++++
@@ -31,13 +31,16 @@ namespace Kimulator
          * Node status
          *
          * */
-
+        KVector<string> m_states;
+        // SpecLUT<State_t> m_init_states{m_states};
         /**
          * Timing
          *
          */
         Kcontainer<string, int> m_timings_ct; // timing names
         int64_t m_read_latency;
+        TimingCons m_timing_cons; // The actual timing constraints used by Ramulator's DRAM model
+
         /**
          * @brief
          *
