@@ -12,7 +12,7 @@ namespace Kimulator
 
     public:
         IDRAM *m_dram;
-        IScheduler *m_sche;
+        IScheduler *m_scheduler;
         IRefresher *m_refresher;
 
     public:

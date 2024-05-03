@@ -46,6 +46,9 @@ namespace Kimulator
          *
          */
         // Device interface
+
+    public:
+                virtual bool check_ready(int command, const AddrVec_t &addr_vec) = 0;
     };
 }
 #endif

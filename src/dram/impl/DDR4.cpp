@@ -166,6 +166,11 @@ namespace Kimulator
       set_rowopens();
       node_init();
     }
+    bool check_ready(int command, const AddrVec_t &addr_vec)
+    {
+      int channel_id = addr_vec[m_levels["channel"]];
+      m_channels[channel_id]->check_ready(command, addr_vec, m_clk);
+    }
 
   private:
     // set organization of dram basen on configuration

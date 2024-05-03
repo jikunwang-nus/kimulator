@@ -94,6 +94,26 @@ namespace Kimulator
                 }
             }
         };
+
+    public:
+        bool check_ready(int command, const AddrVec_t &addr_vec, Clk_t clk)
+        {
+            if (m_cmd_ready_clk[command] != -1 && clk < m_cmd_ready_clk[command])
+            {
+                // stop recursion: the check failed at this level
+                return false;
+            }
+
+            int child_id = addr_vec[m_level + 1];
+            if (child_id < 0 || m_level == m_spec->m_command_scopes[command] || !m_child_nodes.size())
+            {
+                // stop recursion: the check passed at all levels
+                return true;
+            }
+
+            // recursively check my child
+            return m_child_nodes[child_id]->check_ready(command, addr_vec, clk);
+        };
     };
 }
 #endif
