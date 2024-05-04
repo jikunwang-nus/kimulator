@@ -68,7 +68,7 @@ namespace Kimulator
                 }
             }
 
-            m_state = spec->m_init_states.at(T::m_levels[m_level]);
+            m_state = spec->m_init_states[m_level];
 
             // Recursively construct next levels
             int next_level = level + 1;

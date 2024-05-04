@@ -15,6 +15,8 @@ namespace Kimulator
         IScheduler *m_scheduler;
         IRefresher *m_refresher;
 
+        int channel_id; // channel for controller
+
     public:
         /**
          * @brief           Send a request to memory controller

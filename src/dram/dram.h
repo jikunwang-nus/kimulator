@@ -2,12 +2,13 @@
 #define KIMULATOR_DRAM_DRAM_H
 
 #include "dram/spec.h"
+#include "base/clock.h"
 namespace Kimulator
 {
     // define abstract class IDRAM as root class, all impl should implement public function
     //
 
-    class IDRAM
+    class IDRAM : public Clock<IDRAM>
     {
         /**+++++++++++++++++++++++++++++++++++++++
             Organization
@@ -20,7 +21,7 @@ namespace Kimulator
         int m_internel_prefetch_size = -1;
         Organization m_organization;
         int m_channel_width = -1;
-
+        KVector<string> m_levels;
         /**+++++++++++++++++++++++++++++++++++++++++
             Request & Commands:
             1. commands
@@ -48,7 +49,20 @@ namespace Kimulator
         // Device interface
 
     public:
-                virtual bool check_ready(int command, const AddrVec_t &addr_vec) = 0;
+        virtual bool check_ready(int command, const AddrVec_t &addr_vec) = 0;
+        int get_level_size(std::string name)
+        {
+            try
+            {
+                int level_idx = m_levels(name);
+                return m_organization.count[level_idx];
+            }
+            catch (const std::out_of_range &e)
+            {
+                return -1;
+            }
+        }
+        void tick();
     };
 }
 #endif

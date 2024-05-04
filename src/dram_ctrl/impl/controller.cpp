@@ -70,16 +70,16 @@ namespace Kimulator
             }
         }
         // find a request from all request buffer by the order of active >> priority >> read & write
-        bool schedule_request(RBuffer bf, Request output)
+        bool schedule_request(RBuffer bf, Request *&output)
         {
             // 1.search from active buffer being served
-            Request *req = nullptr;
+            Request req* = nullptr;
             if (req = m_scheduler->get_prefered_request(active_buffer); req != nullptr)
             {
                 if (m_dram->check_ready(req->command, req->addr_vec))
                 {
                     bf = &active_buffer;
-                    output = &req;
+                    output = req;
                     return true;
                 }
             }
@@ -99,9 +99,9 @@ namespace Kimulator
             // 3.search from read or write buffer
             set_write_mode();
             RBuffer *rdwr = is_wirte_mode ? &write_buffer : &read_buffer;
-            if (req = m_scheduler->get_prefered_request(rdwr); req != nullptr)
+            if (req = m_scheduler->get_prefered_request(*rdwr); req != nullptr)
             {
-                if (m_dram->check_ready(req.command, req.addr_vec))
+                if (m_dram->check_ready(req->command, req->addr_vec))
                 {
                     bf = &priority_buffer;
                     output = req;

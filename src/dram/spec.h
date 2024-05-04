@@ -22,6 +22,7 @@ namespace Kimulator
     bool is_accessing = false;
     bool is_refreshing = false;
   };
+
   template <typename K>
   class KVector : public std::vector<K>
   {
@@ -105,6 +106,41 @@ namespace Kimulator
   };
   using TimingCons = std::vector<std::vector<std::vector<TimingConsEntry>>>;
 
+  class KMapper
+  {
+  private:
+    std::map<int, int> index_map;
+    std::vector<string_view> keys;
+    std::vector<string_view> values;
+    bool key_exist(string_view key);
+    int search_index(string_view name)
+    {
+    }
+
+  public:
+    KMapper(vector<string_view> &keys, vector<string_view> &values, map<string_view, string_view> map)
+    {
+      this->keys = keys;
+      this->values = values;
+      for (auto at = map.begin(); at != map.end(); at++)
+      {
+        index_map[search_index(at->first)] = search_index(at->second);
+      }
+    };
+
+  public:
+    int operator[](int index) const
+    {
+      if (index >= 0 && index < index_map.size())
+      {
+        auto at = index_map.find(index);
+        if (at != index_map.end())
+        {
+          return at->second;
+        }
+      }
+    }
+  };
   template <typename K, typename V>
   class Kcontainer
   {

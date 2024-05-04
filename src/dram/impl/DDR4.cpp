@@ -56,7 +56,7 @@ namespace Kimulator
 
     // organization
     const int m_internel_prefetch_size = 8;
-    inline static KVector<string> m_levels = {
+    inline static KVector<string_view> m_levels = {
         "channel",
         "rank",
         "bankgroup",
@@ -65,7 +65,7 @@ namespace Kimulator
         "column",
     };
     // commands
-    inline static KVector<std::string> m_commands = {
+    inline static KVector<string_view> m_commands = {
         "ACT",         // activate a row
         "PRE", "PREA", // precharge & close (PREA = precharge all)
         "RD", "RDA",   // read & auto-increase read
@@ -73,7 +73,7 @@ namespace Kimulator
         "REFab"        // automatic refresh
     };
     // command enable scope
-    inline static map<string, string> m_command_scope = {
+    inline static map<string_view, string_view> command_level_mapping = {
         {"ACT", "row"},
         {"PRE", "bank"},
         {"PREA", "rank"},
@@ -82,6 +82,7 @@ namespace Kimulator
         {"WR", "column"},
         {"WRA", "column"},
         {"REFab", "rank"}};
+    inline static KMapper m_command_scopes = {m_commands, m_levels, command_level_mapping};
     // command metadata
     inline static map<string, DRAMCommandMeta> m_command_md = {
         // command  ?open  ?close  ?access ?refresh
@@ -118,27 +119,19 @@ namespace Kimulator
         "nCS",
         "tCK_ps"};
     // node states
-    inline static KVector<string> m_states = {
+    inline static KVector<string_view> m_states = {
         "Opened",
         "Closed",
         "PowerUp",
         "N/A"};
     // node init states
-    inline static map<string, string> m_init_states = {
-        {"channel", "Opened"},
-        {"rank", "PowerUp"},
-        {"bank_group", "N/A"},
-        {"bank", "Closed"},
-        {"row", "Closed"},
-        {"column", "N/A"}};
-
-    // inline static map<string, string> m_init_states = {
-    //     {"channel", m_states[0]},
-    //     {"rank", m_states[2]},
-    //     {"bank_group", m_states[3]},
-    //     {"bank", m_states[1]},
-    //     {"row", m_states[1]},
-    //     {"column", m_states[3]}};
+    inline static map<string_view, string_view> init_level_state_mapping = {{"channel", "Opened"},
+                                                                            {"rank", "PowerUp"},
+                                                                            {"bank_group", "N/A"},
+                                                                            {"bank", "Closed"},
+                                                                            {"row", "Closed"},
+                                                                            {"column", "N/A"}};
+    inline static KMapper m_init_states = {m_levels, m_states, init_level_state_mapping};
 
     struct Node : public DRAMNodeBase<DDR4>
     {
@@ -170,6 +163,10 @@ namespace Kimulator
     {
       int channel_id = addr_vec[m_levels["channel"]];
       m_channels[channel_id]->check_ready(command, addr_vec, m_clk);
+    }
+    void tick()
+    {
+      m_clk++;
     }
 
   private:
@@ -391,7 +388,7 @@ namespace Kimulator
     // create node and init
     void node_init()
     {
-      int n_channels = m_organization.count[m_levels.indexOf("channel")];
+      int n_channels = m_organization.count[m_levels["channel"]];
       for (int i = 0; i < n_channels; i++)
       {
         Node *ch = new Node(this, nullptr, 0, i);

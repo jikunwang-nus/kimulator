@@ -13,6 +13,8 @@ namespace Kimulator
         AddrVec_t addr_vec;
         int type_id;
         int command;
+        Clk_t arrive;
+        Clk_t depart;
         using const type_read = 0;
         using const type_write = 1;
 
@@ -28,6 +30,8 @@ namespace Kimulator
         size_t max_size = 64;
 
     public:
+        iterator begin() { return buffer.begin(); }
+        iterator end() { return buffer.end(); }
         size_t size() { return buffer.size(); }
         bool contain(Request &req)
         {
